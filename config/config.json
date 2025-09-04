@@ -1,0 +1,22 @@
+{
+  "development": {
+    "username": "webhook_user",
+    "password": "your_secure_password",
+    "database": "webhook_renewal",
+    "host": "localhost",
+    "port": 5432,
+    "dialect": "postgres"
+  },
+  "test": {
+    "username": "webhook_user",
+    "password": "your_secure_password",
+    "database": "webhook_renewal_test",
+    "host": "localhost",
+    "port": 5432,
+    "dialect": "postgres"
+  },
+  "production": {
+    "use_env_variable": "DATABASE_URL",
+    "dialect": "postgres"
+  }
+}
