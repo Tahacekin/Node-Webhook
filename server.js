@@ -21,27 +21,45 @@ app.use(session({
   cookie: { secure: false } // Set to true in production with HTTPS
 }));
 
-// Database connection
-const sequelize = new Sequelize(
-  process.env.DB_NAME || 'webhook_renewal',
-  process.env.DB_USER || 'webhook_user',
-  process.env.DB_PASSWORD || 'your_secure_password',
-  {
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
+// Database connection - use DATABASE_URL for production
+let sequelize;
+if (process.env.DATABASE_URL) {
+  // Production (Vercel) - use DATABASE_URL
+  sequelize = new Sequelize(process.env.DATABASE_URL, {
     dialect: 'postgres',
-    logging: false
-  }
-);
-
-// Test database connection
-sequelize.authenticate()
-  .then(() => {
-    console.log('Database connection established successfully.');
-  })
-  .catch(err => {
-    console.error('Unable to connect to the database:', err);
+    logging: false,
+    dialectOptions: {
+      ssl: {
+        require: true,
+        rejectUnauthorized: false
+      }
+    }
   });
+} else {
+  // Development - use individual variables
+  sequelize = new Sequelize(
+    process.env.DB_NAME || 'webhook_renewal',
+    process.env.DB_USER || 'webhook_user',
+    process.env.DB_PASSWORD || 'your_secure_password',
+    {
+      host: process.env.DB_HOST || 'localhost',
+      port: process.env.DB_PORT || 5432,
+      dialect: 'postgres',
+      logging: false
+    }
+  );
+}
+
+// Test database connection (only in development)
+if (process.env.NODE_ENV !== 'production') {
+  sequelize.authenticate()
+    .then(() => {
+      console.log('Database connection established successfully.');
+    })
+    .catch(err => {
+      console.error('Unable to connect to the database:', err);
+    });
+}
 
 // Microsoft Graph API configuration
 const CLIENT_ID = process.env.CLIENT_ID;
@@ -176,11 +194,17 @@ app.post('/create-subscription', async (req, res) => {
       });
     
     // Store subscription in database
-    const dbSubscription = await Subscription.create({
-      subscriptionId: subscription.id,
-      expirationDateTime: new Date(subscription.expirationDateTime),
-      userId: userId
-    });
+    try {
+      const dbSubscription = await Subscription.create({
+        subscriptionId: subscription.id,
+        expirationDateTime: new Date(subscription.expirationDateTime),
+        userId: userId
+      });
+      console.log('Subscription stored in database:', dbSubscription.id);
+    } catch (dbError) {
+      console.error('Database error:', dbError);
+      // Continue even if database storage fails
+    }
     
     // Store subscription ID in session for management
     req.session.subscriptionId = subscription.id;
@@ -268,8 +292,31 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Start renewal service
-renewalService.start();
+// Database test endpoint
+app.get('/test-db', async (req, res) => {
+  try {
+    await sequelize.authenticate();
+    const result = await sequelize.query('SELECT NOW() as current_time');
+    res.json({ 
+      status: 'Database connected', 
+      time: result[0][0].current_time,
+      environment: process.env.NODE_ENV 
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      error: 'Database connection failed', 
+      details: error.message,
+      environment: process.env.NODE_ENV 
+    });
+  }
+});
+
+// Start renewal service (only in development)
+if (process.env.NODE_ENV !== 'production') {
+  renewalService.start();
+} else {
+  console.log('Renewal service disabled in production (serverless environment)');
+}
 
 // Manual renewal endpoint for testing
 app.post('/manual-renewal', async (req, res) => {
@@ -282,10 +329,14 @@ app.post('/manual-renewal', async (req, res) => {
   }
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Visit http://localhost:${PORT} to start`);
-});
+// Start server (only in development)
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Visit http://localhost:${PORT} to start`);
+  });
+} else {
+  console.log('Serverless function ready for production');
+}
 
 module.exports = app;
