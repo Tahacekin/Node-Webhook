@@ -46,7 +46,7 @@ sequelize.authenticate()
 // Microsoft Graph API configuration
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
-const APP_URL = process.env.APP_URL || 'http://localhost:3000';
+const APP_URL = process.env.APP_URL || 'https://node-webhook-mi3nuu5rt-taha-cekins-projects.vercel.app';
 const REDIRECT_URI = `${APP_URL}/callback`;
 // Dynamic webhook URL based on environment
 const WEBHOOK_URL = process.env.WEBHOOK_URL || `${APP_URL}/webhook`;
