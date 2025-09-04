@@ -1,228 +1,312 @@
-# Outlook Email Reader with Webhook Support
+# 🔄 Microsoft Graph Webhook Renewal System
 
-A Node.js application that connects to Microsoft Outlook via Graph API to read emails manually and receive real-time notifications through webhooks. Deployable on Vercel.
+A comprehensive Node.js application that automatically manages Microsoft Graph webhook subscriptions, ensuring they never expire by implementing a PostgreSQL-based renewal system.
 
-## Features
+## ✨ Features
 
-- 🔐 OAuth 2.0 authentication with Microsoft Graph API
-- 📧 Manual email fetching with a beautiful web interface
-- 🔔 Real-time email notifications via webhooks
-- 🚀 Ready for Vercel deployment
-- 📱 Responsive design
+- **🔐 Microsoft Graph Integration**: OAuth 2.0 authentication with Microsoft accounts
+- **📧 Email Management**: Fetch and display Outlook emails
+- **🔔 Webhook Subscriptions**: Create and manage webhook subscriptions for real-time notifications
+- **🔄 Automatic Renewal**: Background service that automatically renews expiring subscriptions
+- **💾 Database Persistence**: PostgreSQL database to store subscription data
+- **⚡ Serverless Ready**: Optimized for Vercel deployment
+- **🧪 Testing Mode**: 1-minute subscription duration for quick testing
 
-## Prerequisites
+## 🏗️ Architecture
 
-- Node.js 18+ installed
-- Microsoft Azure account
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   Frontend UI   │    │   Node.js API    │    │  PostgreSQL DB  │
+│                 │◄──►│                  │◄──►│                 │
+│ - Login/Logout  │    │ - OAuth Flow     │    │ - Subscriptions │
+│ - Email Display │    │ - Webhook Mgmt   │    │ - User Data     │
+│ - Webhook Setup │    │ - Renewal Service│    │ - Expiration    │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+                                │
+                                ▼
+                       ┌──────────────────┐
+                       │ Microsoft Graph  │
+                       │      API         │
+                       │                  │
+                       │ - Email Data     │
+                       │ - Webhook Events │
+                       │ - Subscription   │
+                       │   Management     │
+                       └──────────────────┘
+```
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- Node.js (>=18.0.0)
+- PostgreSQL database
+- Microsoft Graph app registration
 - Vercel account (for deployment)
 
-## Part 1: Azure Portal Setup
+### 1. Clone the Repository
 
-### Step 1: Register a New Application
+```bash
+git clone https://github.com/Tahacekin/Node-Webhook.git
+cd Node-Webhook
+```
 
-1. Go to the [Azure Portal](https://portal.azure.com/)
-2. Navigate to **Azure Active Directory** (now called "Microsoft Entra ID")
-3. Click on **App registrations** in the left sidebar
-4. Click **New registration**
-5. Fill in the application details:
-   - **Name**: `Outlook Email Reader` (or any name you prefer)
-   - **Supported account types**: Select "Accounts in any organizational directory and personal Microsoft accounts"
-   - **Redirect URI**: 
-     - Platform: **Web**
-     - URI: `http://localhost:3000/callback` (for local development)
-6. Click **Register**
-
-### Step 2: Configure API Permissions
-
-1. In your app registration, go to **API permissions**
-2. Click **Add a permission**
-3. Select **Microsoft Graph**
-4. Choose **Delegated permissions**
-5. Search for and select:
-   - `Mail.Read` - Read user mail
-6. Click **Add permissions**
-7. Click **Grant admin consent** (if you have admin rights)
-
-### Step 3: Create Client Secret
-
-1. Go to **Certificates & secrets**
-2. Click **New client secret**
-3. Add a description: `Webhook App Secret`
-4. Choose expiration (recommend 12 months)
-5. Click **Add**
-6. **IMPORTANT**: Copy the secret value immediately - you won't be able to see it again!
-
-### Step 4: Note Your Application Details
-
-From the **Overview** page, copy:
-- **Application (client) ID**
-- **Directory (tenant) ID** (you might need this later)
-
-## Part 2: Local Development Setup
-
-### Step 1: Install Dependencies
+### 2. Install Dependencies
 
 ```bash
 npm install
 ```
 
-### Step 2: Environment Configuration
+### 3. Environment Setup
 
-1. Copy the example environment file:
-   ```bash
-   cp env.example .env
-   ```
+Create a `.env` file with your configuration:
 
-2. Edit `.env` and add your Azure app details:
-   ```env
-   CLIENT_ID=your_client_id_from_azure
-   CLIENT_SECRET=your_client_secret_from_azure
-   REDIRECT_URI=http://localhost:3000/callback
-   SESSION_SECRET=your_random_session_secret
-   WEBHOOK_URL=https://your-vercel-app.vercel.app/webhook
-   WEBHOOK_SECRET=your_random_webhook_secret
-   ```
+```env
+# Microsoft Graph API Configuration
+CLIENT_ID=your_microsoft_client_id
+CLIENT_SECRET=your_microsoft_client_secret
+APP_URL=http://localhost:3000
+REDIRECT_URI=http://localhost:3000/callback
 
-### Step 3: Run the Application
+# Session Configuration
+SESSION_SECRET=your_secure_session_secret
+
+# Webhook Configuration
+WEBHOOK_URL=http://localhost:3000/webhook
+WEBHOOK_SECRET=your_webhook_secret
+
+# Database Configuration
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=webhook_renewal
+DB_USER=webhook_user
+DB_PASSWORD=your_secure_password
+```
+
+### 4. Database Setup
 
 ```bash
-# Development mode with auto-restart
+# Create database and user
+psql postgres -c "CREATE DATABASE webhook_renewal;"
+psql postgres -c "CREATE USER webhook_user WITH PASSWORD 'your_secure_password';"
+psql postgres -c "GRANT ALL PRIVILEGES ON DATABASE webhook_renewal TO webhook_user;"
+
+# Run migrations
+npx sequelize-cli db:migrate
+```
+
+### 5. Start the Application
+
+```bash
+# Development mode
 npm run dev
 
-# Or production mode
+# Production mode
 npm start
 ```
 
-Visit `http://localhost:3000` to see the application.
+Visit `http://localhost:3000` to access the application.
 
-## Part 3: Vercel Deployment
+## 🔧 Configuration
 
-### Step 1: Install Vercel CLI
+### Microsoft Graph App Registration
 
-```bash
-npm install -g vercel
-```
+1. Go to [Azure Portal](https://portal.azure.com)
+2. Navigate to Azure Active Directory → App registrations
+3. Create a new app registration
+4. Add redirect URI: `https://your-domain.com/callback`
+5. Note down the Client ID and Client Secret
 
-### Step 2: Deploy to Vercel
+### Database Configuration
 
-```bash
-# Login to Vercel
-vercel login
+The application supports both local PostgreSQL and cloud databases:
 
-# Deploy the project
-vercel
+- **Local Development**: Uses individual database variables
+- **Production (Vercel)**: Uses `DATABASE_URL` environment variable
 
-# Follow the prompts:
-# - Set up and deploy? Yes
-# - Which scope? (select your account)
-# - Link to existing project? No
-# - Project name: outlook-webhook-app (or your preferred name)
-# - Directory: ./
-# - Override settings? No
-```
+### Testing Configuration
 
-### Step 3: Configure Environment Variables
+For testing purposes, the application is configured with:
+- **Webhook Duration**: 1 minute (instead of 3 days)
+- **Renewal Check**: Every 30 seconds
+- **Renewal Window**: 2 minutes
 
-1. Go to your Vercel dashboard
-2. Select your project
-3. Go to **Settings** → **Environment Variables**
-4. Add all the variables from your `.env` file:
-   - `CLIENT_ID`
-   - `CLIENT_SECRET`
-   - `SESSION_SECRET`
-   - `WEBHOOK_URL` (use your Vercel app URL)
-   - `WEBHOOK_SECRET`
-
-### Step 4: Update Azure Redirect URI
-
-1. Go back to your Azure app registration
-2. Go to **Authentication**
-3. Add a new redirect URI:
-   - Platform: **Web**
-   - URI: `https://your-vercel-app.vercel.app/callback`
-4. Save the changes
-
-## Part 4: Webhook Configuration
-
-### Understanding Webhooks
-
-The application includes webhook functionality that allows Microsoft Graph to send notifications when new emails arrive. Here's how it works:
-
-1. **Subscription Creation**: When you click "Setup Webhook", the app creates a subscription with Microsoft Graph
-2. **Validation**: Microsoft Graph sends a validation request to your webhook URL
-3. **Notifications**: When new emails arrive, Microsoft Graph sends notifications to your webhook endpoint
-4. **Processing**: The webhook endpoint processes these notifications
-
-### Webhook Endpoints
-
-- `POST /create-subscription` - Creates a webhook subscription
-- `POST /webhook` - Receives notifications from Microsoft Graph
-
-### Testing Webhooks Locally
-
-For local development, you'll need to expose your local server to the internet. You can use tools like:
-
-- **ngrok**: `ngrok http 3000`
-- **localtunnel**: `npx localtunnel --port 3000`
-
-Update your `WEBHOOK_URL` in `.env` to use the ngrok/localtunnel URL.
-
-## API Endpoints
-
-### Authentication
-- `GET /login` - Initiates OAuth flow
-- `GET /callback` - Handles OAuth callback
-- `POST /logout` - Logs out user
-
-### Email Operations
-- `GET /fetch-emails` - Fetches recent emails
-- `POST /create-subscription` - Creates webhook subscription
-- `POST /webhook` - Webhook endpoint for notifications
-
-### Utility
-- `GET /health` - Health check endpoint
-
-## Project Structure
+## 📁 Project Structure
 
 ```
 Node-Webhook/
-├── server.js              # Main Express server
-├── package.json           # Dependencies and scripts
-├── vercel.json           # Vercel deployment config
-├── env.example           # Environment variables template
+├── api/
+│   └── index.js              # Serverless API entry point
+├── config/
+│   ├── config.json           # Sequelize configuration
+│   └── database.js           # Database connection settings
+├── migrations/
+│   └── *.js                  # Database migrations
+├── models/
+│   ├── index.js              # Sequelize models index
+│   └── subscription.js       # Subscription model
+├── services/
+│   └── renewalService.js     # Background renewal service
 ├── public/
-│   └── index.html        # Frontend interface
-└── README.md             # This file
+│   └── index.html            # Frontend UI
+├── server.js                 # Main server file
+├── vercel.json              # Vercel deployment config
+└── README.md                # This file
 ```
 
-## Security Considerations
+## 🔄 How It Works
 
-1. **Environment Variables**: Never commit `.env` files to version control
-2. **Session Security**: Use strong, random session secrets
-3. **HTTPS**: Always use HTTPS in production
-4. **Webhook Validation**: The app validates webhook requests using client state
-5. **Token Storage**: Access tokens are stored in server-side sessions
+### 1. Authentication Flow
+- User clicks "Login with Microsoft"
+- Redirected to Microsoft OAuth
+- Authorization code exchanged for access token
+- Session established
 
-## Troubleshooting
+### 2. Webhook Creation
+- User creates webhook subscription
+- Subscription stored in PostgreSQL database
+- Microsoft Graph subscription created with 1-minute expiration
+
+### 3. Automatic Renewal
+- Background service checks for expiring subscriptions every 30 seconds
+- Finds subscriptions expiring within 2 minutes
+- Renews them for another 1 minute
+- Updates database with new expiration time
+
+### 4. Webhook Notifications
+- Microsoft Graph sends notifications to `/webhook` endpoint
+- Notifications processed and logged
+- Real-time email updates received
+
+## 🚀 Deployment
+
+### Vercel Deployment
+
+1. **Connect to GitHub**: Link your repository to Vercel
+2. **Set Environment Variables**:
+   ```env
+   DATABASE_URL=postgresql://user:pass@host:port/db
+   CLIENT_ID=your_client_id
+   CLIENT_SECRET=your_client_secret
+   APP_URL=https://your-app.vercel.app
+   SESSION_SECRET=your_session_secret
+   WEBHOOK_SECRET=your_webhook_secret
+   ```
+3. **Deploy**: Vercel will automatically deploy on push
+
+### Manual Deployment
+
+```bash
+# Install Vercel CLI
+npm i -g vercel
+
+# Deploy
+vercel --prod
+```
+
+## 🧪 Testing
+
+### Local Testing
+
+```bash
+# Test database connection
+node test-supabase.js
+
+# Test complete setup
+node setup-production.js
+
+# Manual renewal test
+curl -X POST http://localhost:3000/manual-renewal
+```
+
+### Production Testing
+
+1. Visit your deployed URL
+2. Login with Microsoft account
+3. Create webhook subscription
+4. Check database for stored subscription
+5. Test manual renewal functionality
+
+## 📊 API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Main application UI |
+| `/login` | GET | Microsoft OAuth login |
+| `/callback` | GET | OAuth callback handler |
+| `/fetch-emails` | GET | Fetch user emails |
+| `/create-subscription` | POST | Create webhook subscription |
+| `/webhook` | POST | Webhook notification endpoint |
+| `/logout` | POST | User logout |
+| `/health` | GET | Health check |
+| `/test-db` | GET | Database connection test |
+| `/manual-renewal` | POST | Manual renewal trigger |
+
+## 🔒 Security
+
+- **Environment Variables**: All secrets stored in environment variables
+- **Session Management**: Secure session handling with configurable secrets
+- **Database Security**: SSL connections for production databases
+- **Input Validation**: Proper validation of webhook notifications
+- **Error Handling**: Comprehensive error handling and logging
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature-name`
+3. Commit changes: `git commit -m 'Add feature'`
+4. Push to branch: `git push origin feature-name`
+5. Submit a pull request
+
+## 📝 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🆘 Troubleshooting
 
 ### Common Issues
 
-1. **"Invalid client" error**: Check your CLIENT_ID in the environment variables
-2. **"Invalid redirect URI"**: Ensure the redirect URI in Azure matches exactly
-3. **"Insufficient privileges"**: Make sure you've granted the Mail.Read permission
-4. **Webhook not working**: Verify the webhook URL is accessible from the internet
+1. **Database Connection Failed**
+   - Check database credentials
+   - Verify database is running
+   - Check network connectivity
 
-### Debug Mode
+2. **OAuth Redirect URI Mismatch**
+   - Ensure redirect URI in Azure matches your app URL
+   - Check for trailing slashes
 
-Set `NODE_ENV=development` to enable detailed error logging.
+3. **Webhook Not Receiving Notifications**
+   - Verify webhook URL is accessible
+   - Check Microsoft Graph subscription status
+   - Review webhook endpoint logs
 
-## License
+4. **Renewal Service Not Working**
+   - Check database connection
+   - Verify subscription data exists
+   - Review renewal service logs
 
-MIT License - feel free to use this project for your own applications.
+### Getting Help
 
-## Support
+- Check the [Issues](https://github.com/Tahacekin/Node-Webhook/issues) page
+- Review the troubleshooting section above
+- Create a new issue with detailed error information
 
-For issues and questions:
-1. Check the troubleshooting section above
-2. Review Microsoft Graph API documentation
-3. Check Vercel deployment logs
+## 🎯 Roadmap
+
+- [ ] Add support for multiple webhook types
+- [ ] Implement webhook retry logic
+- [ ] Add subscription analytics dashboard
+- [ ] Support for multiple Microsoft tenants
+- [ ] Webhook notification filtering
+- [ ] Real-time subscription monitoring
+
+## 🙏 Acknowledgments
+
+- Microsoft Graph API for webhook capabilities
+- Vercel for serverless deployment platform
+- PostgreSQL for reliable data storage
+- Node.js community for excellent packages
+
+---
+
+**Made with ❤️ for reliable webhook management**
