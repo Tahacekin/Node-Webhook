@@ -3,8 +3,7 @@ const session = require('express-session');
 const { Client } = require('@microsoft/microsoft-graph-client');
 const axios = require('axios');
 const crypto = require('crypto');
-const { Sequelize } = require('sequelize');
-const { Subscription } = require('./models');
+const { sequelize, Subscription } = require('./models');
 const renewalService = require('./services/renewalService');
 require('dotenv').config();
 
@@ -21,35 +20,12 @@ app.use(session({
   cookie: { secure: false } // Set to true in production with HTTPS
 }));
 
-// Database connection
-const sequelize = new Sequelize(
-  process.env.DB_NAME || 'webhook_renewal',
-  process.env.DB_USER || 'webhook_user',
-  process.env.DB_PASSWORD || 'your_secure_password',
-  {
-    host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 5432,
-    dialect: 'postgres',
-    logging: false
-  }
-);
-
-// Test database connection
-sequelize.authenticate()
-  .then(() => {
-    console.log('Database connection established successfully.');
-  })
-  .catch(err => {
-    console.error('Unable to connect to the database:', err);
-  });
-
 // Microsoft Graph API configuration
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
-const APP_URL = process.env.APP_URL || 'https://node-webhook-mi3nuu5rt-taha-cekins-projects.vercel.app';
-const REDIRECT_URI = `${APP_URL}/callback`;
-// Dynamic webhook URL based on environment
-const WEBHOOK_URL = process.env.WEBHOOK_URL || `${APP_URL}/webhook`;
+const REDIRECT_URI = process.env.REDIRECT_URI || 'http://localhost:3000/callback';
+// Use hardcoded webhook URL to avoid environment variable issues
+const WEBHOOK_URL = 'https://natural-sparkle-production.up.railway.app/webhook';
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
 // Helper function to get Graph client
@@ -65,10 +41,13 @@ function getGraphClient(accessToken) {
 
 // Login route - redirects to Microsoft login
 app.get('/login', (req, res) => {
+  // Use hardcoded redirect URI to avoid environment variable issues
+  const hardcodedRedirectUri = 'https://natural-sparkle-production.up.railway.app/callback';
+  
   const authUrl = `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?` +
     `client_id=${CLIENT_ID}&` +
     `response_type=code&` +
-    `redirect_uri=${encodeURIComponent(REDIRECT_URI)}&` +
+    `redirect_uri=${encodeURIComponent(hardcodedRedirectUri)}&` +
     `response_mode=query&` +
     `scope=https://graph.microsoft.com/Mail.Read&` +
     `state=12345`;
@@ -86,12 +65,13 @@ app.get('/callback', async (req, res) => {
   
   try {
     // Exchange authorization code for access token
+    const hardcodedRedirectUri = 'https://natural-sparkle-production.up.railway.app/callback';
     const tokenResponse = await axios.post('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
       code: code,
       grant_type: 'authorization_code',
-      redirect_uri: REDIRECT_URI,
+      redirect_uri: hardcodedRedirectUri,
       scope: 'https://graph.microsoft.com/Mail.Read'
     }, {
       headers: {
@@ -99,11 +79,20 @@ app.get('/callback', async (req, res) => {
       }
     });
     
-    const { access_token, refresh_token } = tokenResponse.data;
+    const { access_token, refresh_token, expires_in } = tokenResponse.data;
     
     // Store tokens in session
     req.session.accessToken = access_token;
     req.session.refreshToken = refresh_token;
+    req.session.userId = 'user-' + Date.now(); // Simple user ID generation
+    
+    // Store tokens in renewal service for webhook renewal
+    renewalService.storeUserTokens(
+      req.session.userId,
+      access_token,
+      refresh_token,
+      expires_in
+    );
     
     res.redirect('/');
   } catch (error) {
@@ -160,10 +149,6 @@ app.post('/create-subscription', async (req, res) => {
   try {
     const graphClient = getGraphClient(req.session.accessToken);
     
-    // Get user info to store with subscription
-    const user = await graphClient.api('/me').get();
-    const userId = user.id;
-    
     // Create a subscription for new mail notifications
     const subscription = await graphClient
       .api('/subscriptions')
@@ -171,19 +156,25 @@ app.post('/create-subscription', async (req, res) => {
         changeType: 'created',
         notificationUrl: WEBHOOK_URL,
         resource: '/me/messages',
-        expirationDateTime: new Date(Date.now() + 1 * 60 * 1000).toISOString(), // 1 minute for testing
+        expirationDateTime: new Date(Date.now() + 4230 * 60 * 1000).toISOString(), // ~3 days
         clientState: WEBHOOK_SECRET
       });
     
-    // Store subscription in database
-    const dbSubscription = await Subscription.create({
-      subscriptionId: subscription.id,
-      expirationDateTime: new Date(subscription.expirationDateTime),
-      userId: userId
-    });
-    
     // Store subscription ID in session for management
     req.session.subscriptionId = subscription.id;
+    
+    // Store subscription in database for renewal service
+    try {
+      await Subscription.create({
+        subscriptionId: subscription.id,
+        expirationDateTime: new Date(subscription.expirationDateTime),
+        userId: req.session.userId || 'default-user'
+      });
+      console.log(`Subscription ${subscription.id} stored in database`);
+    } catch (dbError) {
+      console.warn('Database not available, subscription not stored for renewal:', dbError.message);
+      // Continue even if database storage fails
+    }
     
     res.json({
       success: true,
@@ -268,24 +259,38 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// Start renewal service
-renewalService.start();
-
-// Manual renewal endpoint for testing
-app.post('/manual-renewal', async (req, res) => {
+// Manual renewal check endpoint (for testing)
+app.post('/manual-renewal-check', async (req, res) => {
   try {
     await renewalService.manualRenewalCheck();
     res.json({ success: true, message: 'Manual renewal check completed' });
   } catch (error) {
-    console.error('Manual renewal error:', error);
-    res.status(500).json({ error: 'Manual renewal failed', details: error.message });
+    console.error('Error in manual renewal check:', error);
+    res.status(500).json({ error: 'Manual renewal check failed', details: error.message });
   }
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Visit http://localhost:${PORT} to start`);
+  
+  try {
+    // Connect to database
+    await sequelize.authenticate();
+    console.log('Database connection established successfully.');
+    
+    // Sync database models
+    await sequelize.sync();
+    console.log('Database models synchronized.');
+    
+    // Start renewal service
+    renewalService.start();
+    console.log('Renewal service started.');
+  } catch (error) {
+    console.warn('Database connection failed, running without renewal service:', error.message);
+    console.log('Webhook functionality will work, but subscription renewal is disabled.');
+  }
 });
 
 module.exports = app;

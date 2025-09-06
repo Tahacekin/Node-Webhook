@@ -4,6 +4,9 @@ const { Subscription } = require('../models');
 const axios = require('axios');
 require('dotenv').config();
 
+// Simple in-memory token storage (in production, use Redis or database)
+const tokenStore = new Map();
+
 class RenewalService {
   constructor() {
     this.isRunning = false;
@@ -16,8 +19,8 @@ class RenewalService {
       return;
     }
 
-    // Run every 30 seconds for testing
-    this.cronJob = cron.schedule('*/30 * * * * *', async () => {
+    // Run once per day at 2 AM UTC
+    this.cronJob = cron.schedule('0 2 * * *', async () => {
       console.log('Starting subscription renewal check...');
       await this.checkAndRenewSubscriptions();
     }, {
@@ -27,7 +30,7 @@ class RenewalService {
 
     this.cronJob.start();
     this.isRunning = true;
-    console.log('Renewal service started - will run every 30 seconds for testing');
+    console.log('Renewal service started - will run daily at 2 AM UTC');
   }
 
   // Stop the renewal service
@@ -39,24 +42,24 @@ class RenewalService {
     }
   }
 
-  // Check for subscriptions that expire in the next 2 minutes and renew them (for testing)
+  // Check for subscriptions that expire in the next 24 hours and renew them
   async checkAndRenewSubscriptions() {
     try {
-      const in2Minutes = new Date();
-      in2Minutes.setMinutes(in2Minutes.getMinutes() + 2); // 2 minutes from now
+      const in24Hours = new Date();
+      in24Hours.setHours(in24Hours.getHours() + 24); // 24 hours from now
 
       const now = new Date();
 
-      // Find subscriptions expiring in the next 2 minutes
+      // Find subscriptions expiring in the next 24 hours
       const expiringSubscriptions = await Subscription.findAll({
         where: {
           expirationDateTime: {
-            [Op.between]: [now, in2Minutes]
+            [Op.between]: [now, in24Hours]
           }
         }
       });
 
-      console.log(`Found ${expiringSubscriptions.length} subscriptions expiring in the next 2 minutes`);
+      console.log(`Found ${expiringSubscriptions.length} subscriptions expiring in the next 24 hours`);
 
       for (const subscription of expiringSubscriptions) {
         try {
@@ -77,9 +80,9 @@ class RenewalService {
     try {
       console.log(`Renewing subscription ${subscription.subscriptionId} for user ${subscription.userId}`);
 
-      // Calculate new expiration date (1 minute from now for testing)
+      // Calculate new expiration date (3 days from now)
       const newExpirationDate = new Date();
-      newExpirationDate.setMinutes(newExpirationDate.getMinutes() + 1);
+      newExpirationDate.setDate(newExpirationDate.getDate() + 3);
 
       // Make PATCH request to Microsoft Graph API
       const response = await axios.patch(
@@ -107,13 +110,78 @@ class RenewalService {
     }
   }
 
-  // Get access token for a user (this is a simplified version)
-  // In a real application, you'd need to implement proper token storage and refresh logic
+  // Get access token for a user
   async getAccessToken(userId) {
-    // This is a placeholder - you'll need to implement proper token management
-    // For now, we'll return null and handle the error in the renewal process
-    console.warn(`Access token retrieval not implemented for user ${userId}. This needs to be implemented with proper token storage.`);
-    return null;
+    try {
+      const userTokens = tokenStore.get(userId);
+      
+      if (!userTokens) {
+        console.warn(`No tokens found for user ${userId}`);
+        return null;
+      }
+
+      // Check if token is still valid (with 5 minute buffer)
+      const now = new Date();
+      const tokenExpiry = new Date(userTokens.expiresAt);
+      
+      if (now < tokenExpiry) {
+        return userTokens.accessToken;
+      }
+
+      // Token is expired, try to refresh it
+      if (userTokens.refreshToken) {
+        console.log(`Refreshing token for user ${userId}`);
+        const newTokens = await this.refreshAccessToken(userTokens.refreshToken);
+        
+        if (newTokens) {
+          // Store new tokens
+          tokenStore.set(userId, {
+            accessToken: newTokens.access_token,
+            refreshToken: newTokens.refresh_token || userTokens.refreshToken,
+            expiresAt: new Date(Date.now() + (newTokens.expires_in * 1000))
+          });
+          
+          return newTokens.access_token;
+        }
+      }
+
+      console.error(`Unable to get valid token for user ${userId}`);
+      return null;
+    } catch (error) {
+      console.error(`Error getting access token for user ${userId}:`, error);
+      return null;
+    }
+  }
+
+  // Refresh access token using refresh token
+  async refreshAccessToken(refreshToken) {
+    try {
+      const response = await axios.post('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+        client_id: process.env.CLIENT_ID,
+        client_secret: process.env.CLIENT_SECRET,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+        scope: 'https://graph.microsoft.com/Mail.Read'
+      }, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      });
+
+      return response.data;
+    } catch (error) {
+      console.error('Error refreshing access token:', error.response?.data || error.message);
+      return null;
+    }
+  }
+
+  // Store tokens for a user (called when user logs in)
+  storeUserTokens(userId, accessToken, refreshToken, expiresIn) {
+    tokenStore.set(userId, {
+      accessToken,
+      refreshToken,
+      expiresAt: new Date(Date.now() + (expiresIn * 1000))
+    });
   }
 
   // Manual renewal check (for testing)
