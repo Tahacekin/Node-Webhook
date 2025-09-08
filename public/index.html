@@ -121,6 +121,17 @@
             background: #e55a00;
         }
         
+        .btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        
+        .btn:disabled:hover {
+            background: #6c757d;
+            transform: none;
+        }
+        
         .loading {
             text-align: center;
             padding: 20px;
@@ -270,6 +281,7 @@
             <div class="controls">
                 <button class="btn" onclick="fetchEmails()">📥 Fetch Emails</button>
                 <button class="btn webhook" onclick="createWebhook()">🔔 Setup Webhook</button>
+                <button class="btn" id="manual-renewal-btn" onclick="runManualRenewalCheck()">🔄 Run Manual Renewal Check</button>
                 <button class="btn secondary" onclick="logout()">🚪 Logout</button>
             </div>
             
@@ -386,6 +398,42 @@
                 }
             } catch (error) {
                 showMessage('Error creating webhook: ' + error.message);
+            }
+        }
+        
+        async function runManualRenewalCheck() {
+            try {
+                // Show loading state
+                const button = document.getElementById('manual-renewal-btn');
+                const originalText = button.textContent;
+                button.textContent = '🔄 Running...';
+                button.disabled = true;
+                
+                // Make POST request to manual renewal check endpoint
+                const response = await fetch('/manual-renewal-check', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    alert('Manual renewal check initiated successfully!');
+                    showMessage('Manual renewal check completed successfully', 'success');
+                } else {
+                    alert('Manual renewal check failed.');
+                    showMessage(data.error || 'Manual renewal check failed', 'error');
+                }
+            } catch (error) {
+                alert('Manual renewal check failed.');
+                showMessage('Error running manual renewal check: ' + error.message, 'error');
+            } finally {
+                // Reset button state
+                const button = document.getElementById('manual-renewal-btn');
+                button.textContent = '🔄 Run Manual Renewal Check';
+                button.disabled = false;
             }
         }
         
