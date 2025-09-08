@@ -28,6 +28,28 @@ const REDIRECT_URI = process.env.REDIRECT_URI || 'http://localhost:3000/callback
 const WEBHOOK_URL = 'https://natural-sparkle-production.up.railway.app/webhook';
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 
+// Helper function to get valid access token (with refresh logic)
+async function getValidAccessToken(req) {
+  console.log("=== getValidAccessToken DEBUG START ===");
+  console.log("Session accessToken type:", typeof req.session.accessToken);
+  console.log("Session accessToken value:", req.session.accessToken);
+  console.log("Session refreshToken type:", typeof req.session.refreshToken);
+  console.log("Session refreshToken value:", req.session.refreshToken);
+  
+  // If no access token in session, return null
+  if (!req.session.accessToken) {
+    console.log("No access token in session, returning null");
+    return null;
+  }
+  
+  // For now, return the stored token (we'll add refresh logic later)
+  // TODO: Add token expiration check and refresh logic
+  const tokenString = String(req.session.accessToken);
+  console.log("Returning access token string:", tokenString);
+  console.log("=== getValidAccessToken DEBUG END ===");
+  return tokenString;
+}
+
 // Helper function to get Graph client
 function getGraphClient(accessToken) {
   return Client.init({
@@ -81,10 +103,22 @@ app.get('/callback', async (req, res) => {
     
     const { access_token, refresh_token, expires_in } = tokenResponse.data;
     
+    console.log("=== /callback TOKEN STORAGE DEBUG ===");
+    console.log("access_token type:", typeof access_token);
+    console.log("access_token value:", access_token);
+    console.log("access_token length:", access_token ? access_token.length : 'null/undefined');
+    console.log("refresh_token type:", typeof refresh_token);
+    console.log("refresh_token value:", refresh_token);
+    console.log("expires_in:", expires_in);
+    
     // Store tokens in session
     req.session.accessToken = access_token;
     req.session.refreshToken = refresh_token;
     req.session.userId = 'user-' + Date.now(); // Simple user ID generation
+    
+    console.log("Stored in session - accessToken:", req.session.accessToken);
+    console.log("Stored in session - refreshToken:", req.session.refreshToken);
+    console.log("=== /callback TOKEN STORAGE DEBUG END ===");
     
     // Store tokens in renewal service for webhook renewal
     renewalService.storeUserTokens(
@@ -105,12 +139,21 @@ app.get('/callback', async (req, res) => {
 
 // API endpoint to fetch emails
 app.get('/fetch-emails', async (req, res) => {
-  if (!req.session.accessToken) {
+  console.log("=== /fetch-emails DEBUG START ===");
+  console.log("Session accessToken before getValidAccessToken:", req.session.accessToken);
+  
+  const validToken = await getValidAccessToken(req);
+  console.log("Token received by controller:", validToken);
+  console.log("Token type:", typeof validToken);
+  console.log("Token length:", validToken ? validToken.length : 'null/undefined');
+  
+  if (!validToken) {
+    console.log("No valid token, returning 401");
     return res.status(401).json({ error: 'Not authenticated. Please login first.' });
   }
   
   try {
-    const graphClient = getGraphClient(req.session.accessToken);
+    const graphClient = getGraphClient(validToken);
     
     // Fetch the top 10 most recent emails
     const messages = await graphClient
@@ -142,12 +185,14 @@ app.get('/fetch-emails', async (req, res) => {
 
 // Create subscription endpoint
 app.post('/create-subscription', async (req, res) => {
-  if (!req.session.accessToken) {
+  const validToken = await getValidAccessToken(req);
+  
+  if (!validToken) {
     return res.status(401).json({ error: 'Not authenticated. Please login first.' });
   }
   
   try {
-    const graphClient = getGraphClient(req.session.accessToken);
+    const graphClient = getGraphClient(validToken);
     
     // Create a subscription for new mail notifications
     const subscription = await graphClient
