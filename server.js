@@ -215,7 +215,7 @@ app.post('/create-subscription', async (req, res) => {
         expirationDateTime: new Date(subscription.expirationDateTime),
         userId: req.session.userId || 'default-user'
       });
-      console.log(`Subscription ${subscription.id} stored in database`);
+      console.log(`Subscription ${subscription.id} stored in database for user: ${req.session.userId}`);
     } catch (dbError) {
       console.warn('Database not available, subscription not stored for renewal:', dbError.message);
       // Continue even if database storage fails
@@ -268,13 +268,69 @@ app.post('/webhook', async (req, res) => {
       const resource = notification.resource;
       console.log('New email notification for resource:', resource);
       
-      // Here you could fetch the specific email details
-      // For now, we'll just log the notification
-      console.log('Notification details:', {
-        changeType: notification.changeType,
-        resource: resource,
-        clientState: notification.clientState
-      });
+      // Extract message ID from the resource URL
+      // Resource format: /me/messages/{messageId}
+      const messageId = resource.split('/').pop();
+      console.log('Extracted message ID:', messageId);
+      
+      // Fetch the full email details using Microsoft Graph API
+      try {
+        // Try to find the subscription to get the correct user ID
+        let userId = 'default-user'; // Fallback
+        try {
+          // Look up subscription by resource to find the user
+          // This is a simplified approach - in production you'd want better mapping
+          const subscription = await Subscription.findOne({
+            where: {
+              // We'll use a simple approach for now
+            },
+            order: [['createdAt', 'DESC']] // Get the most recent subscription
+          });
+          
+          if (subscription && subscription.userId) {
+            userId = subscription.userId;
+            console.log('Found user ID from subscription:', userId);
+          }
+        } catch (lookupError) {
+          console.warn('Could not lookup subscription, using default user:', lookupError.message);
+        }
+        
+        const accessToken = await renewalService.getAccessToken(userId);
+        
+        if (!accessToken) {
+          console.warn('No access token available for user:', userId);
+          continue;
+        }
+        
+        // Create Graph client with the access token
+        const graphClient = getGraphClient(accessToken);
+        
+        // Fetch the specific email details
+        const email = await graphClient
+          .api(`/me/messages/${messageId}`)
+          .select('subject,from,body,receivedDateTime,isRead')
+          .get();
+        
+        // Log the email subject
+        console.log("New Email Received - Subject:", email.subject);
+        console.log("From:", email.from?.emailAddress?.name || 'Unknown');
+        console.log("Received:", email.receivedDateTime);
+        console.log("Is Read:", email.isRead);
+        
+        // Log additional details if needed
+        console.log('Full email details:', {
+          id: email.id,
+          subject: email.subject,
+          from: email.from?.emailAddress,
+          receivedDateTime: email.receivedDateTime,
+          isRead: email.isRead,
+          bodyPreview: email.body?.content ? email.body.content.substring(0, 100) + '...' : 'No body content'
+        });
+        
+      } catch (fetchError) {
+        console.error('Error fetching email details:', fetchError);
+        console.error('Error details:', fetchError.response?.data || fetchError.message);
+      }
       
     } catch (error) {
       console.error('Error processing notification:', error);
