@@ -1,5 +1,6 @@
 const express = require('express');
 const session = require('express-session');
+const SequelizeStore = require('connect-session-sequelize')(session.Store);
 const { Client } = require('@microsoft/microsoft-graph-client');
 const axios = require('axios');
 const crypto = require('crypto');
@@ -10,14 +11,28 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Configure Sequelize session store
+const sessionStore = new SequelizeStore({
+  db: sequelize,
+  tableName: 'Sessions'
+});
+
 // Middleware
 app.use(express.json());
 app.use(express.static('public'));
+
+// Session middleware with database store for production
 app.use(session({
   secret: process.env.SESSION_SECRET || 'your-session-secret',
+  store: sessionStore,
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false } // Set to true in production with HTTPS
+  proxy: true, // Essential for Railway
+  cookie: { 
+    secure: process.env.NODE_ENV === 'production', // true in production with HTTPS
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+  }
 }));
 
 // Microsoft Graph API configuration
@@ -440,6 +455,10 @@ app.listen(PORT, async () => {
     // Sync database models
     await sequelize.sync();
     console.log('Database models synchronized.');
+    
+    // Sync session store to create Sessions table
+    await sessionStore.sync();
+    console.log('Session store synchronized.');
     
     // Start renewal service
     renewalService.start();
