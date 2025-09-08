@@ -35,6 +35,11 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: false,
       defaultValue: 'local'
     },
+    authProvider: {
+      type: DataTypes.ENUM('microsoft', 'email'),
+      allowNull: false,
+      defaultValue: 'email'
+    },
     microsoftId: {
       type: DataTypes.STRING,
       allowNull: true // Only for Microsoft OAuth users

@@ -8,6 +8,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { sequelize, Subscription, User } = require('./models');
 const renewalService = require('./services/renewalService');
+const imapService = require('./services/imapService');
 require('dotenv').config();
 
 const app = express();
@@ -164,7 +165,8 @@ app.post('/auth/register', async (req, res) => {
       name,
       email,
       password: hashedPassword,
-      provider: 'local'
+      provider: 'local',
+      authProvider: 'email'
     });
     
     // Generate JWT token
@@ -183,6 +185,7 @@ app.post('/auth/register', async (req, res) => {
     req.session.userEmail = user.email;
     req.session.userName = user.name;
     req.session.provider = 'local';
+    req.session.authProvider = user.authProvider;
     
     res.status(201).json({
       success: true,
@@ -260,6 +263,7 @@ app.post('/auth/login', async (req, res) => {
     req.session.userEmail = user.email;
     req.session.userName = user.name;
     req.session.provider = 'local';
+    req.session.authProvider = user.authProvider;
     
     res.json({
       success: true,
@@ -337,6 +341,7 @@ app.get('/callback', async (req, res) => {
     req.session.refreshToken = refresh_token;
     req.session.userId = 'user-' + Date.now(); // Simple user ID generation
     req.session.tokenExpiresAt = new Date(Date.now() + (expires_in * 1000));
+    req.session.authProvider = 'microsoft';
     
     console.log("Stored in session - accessToken:", req.session.accessToken);
     console.log("Stored in session - refreshToken:", req.session.refreshToken);
@@ -364,38 +369,203 @@ app.get('/callback', async (req, res) => {
 // API endpoint to fetch emails
 app.get('/fetch-emails', async (req, res) => {
   console.log("=== /fetch-emails DEBUG START ===");
-  console.log("Session accessToken before getValidAccessToken:", req.session.accessToken);
+  console.log("Session authProvider:", req.session.authProvider);
+  console.log("Session userId:", req.session.userId);
   
-  const validToken = await getValidAccessToken(req);
-  console.log("Token received by controller:", validToken);
-  console.log("Token type:", typeof validToken);
-  console.log("Token length:", validToken ? validToken.length : 'null/undefined');
-  
-  if (!validToken) {
-    console.log("No valid token, returning 401");
+  // Check if user is authenticated
+  if (!req.session.userId) {
+    console.log("No user ID in session, returning 401");
     return res.status(401).json({ error: 'Not authenticated. Please login first.' });
   }
   
   try {
-    const graphClient = getGraphClient(validToken);
+    let emails = [];
     
-    // Fetch the top 10 most recent emails
-    const messages = await graphClient
-      .api('/me/messages')
-      .select('subject,receivedDateTime,from,isRead')
-      .top(10)
-      .orderby('receivedDateTime desc')
-      .get();
-    
-    res.json({
-      success: true,
-      emails: messages.value.map(email => ({
+    if (req.session.authProvider === 'microsoft') {
+      // Microsoft OAuth flow
+      console.log("Using Microsoft Graph API for email fetching");
+      const validToken = await getValidAccessToken(req);
+      console.log("Token received by controller:", validToken);
+      
+      if (!validToken) {
+        console.log("No valid Microsoft token, returning 401");
+        return res.status(401).json({ error: 'Microsoft authentication expired. Please login again.' });
+      }
+      
+      const graphClient = getGraphClient(validToken);
+      
+      // Fetch the top 10 most recent emails
+      const messages = await graphClient
+        .api('/me/messages')
+        .select('subject,receivedDateTime,from,isRead')
+        .top(10)
+        .orderby('receivedDateTime desc')
+        .get();
+      
+      emails = messages.value.map(email => ({
         subject: email.subject,
         receivedDateTime: email.receivedDateTime,
         from: email.from?.emailAddress?.name || 'Unknown',
         isRead: email.isRead
-      }))
+      }));
+      
+    } else if (req.session.authProvider === 'email') {
+      // IMAP flow for standard email providers
+      console.log("Using IMAP for email fetching");
+      
+      // Get user from database to access email and password
+      const user = await User.findByPk(req.session.userId);
+      if (!user) {
+        return res.status(401).json({ error: 'User not found. Please login again.' });
+      }
+      
+      if (!user.email || !user.password) {
+        return res.status(400).json({ 
+          error: 'Email credentials not available. Please re-register with your email credentials.' 
+        });
+      }
+      
+      // For IMAP, we need to temporarily decrypt the password
+      // Note: This is a security consideration - in production, consider using OAuth2 for email providers
+      const emailPassword = req.body.emailPassword || req.query.emailPassword;
+      
+      if (!emailPassword) {
+        return res.status(400).json({ 
+          error: 'Email password required for IMAP access. Please provide your email password.',
+          requiresPassword: true
+        });
+      }
+      
+      // Test connection first
+      try {
+        await imapService.testConnection(user.email, emailPassword);
+      } catch (connectionError) {
+        return res.status(400).json({ 
+          error: 'Invalid email credentials. Please check your email and password.',
+          details: connectionError.message
+        });
+      }
+      
+      // Fetch emails using IMAP
+      emails = await imapService.fetchEmails(user.email, emailPassword, 10);
+      
+    } else {
+      return res.status(400).json({ 
+        error: 'Unknown authentication provider. Please login again.' 
+      });
+    }
+    
+    console.log(`Successfully fetched ${emails.length} emails`);
+    res.json({
+      success: true,
+      emails: emails,
+      authProvider: req.session.authProvider
     });
+    
+  } catch (error) {
+    console.error('Error fetching emails:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch emails',
+      details: error.message 
+    });
+  }
+});
+
+// POST endpoint for fetch-emails (for IMAP password handling)
+app.post('/fetch-emails', async (req, res) => {
+  console.log("=== /fetch-emails POST DEBUG START ===");
+  console.log("Session authProvider:", req.session.authProvider);
+  console.log("Session userId:", req.session.userId);
+  
+  // Check if user is authenticated
+  if (!req.session.userId) {
+    console.log("No user ID in session, returning 401");
+    return res.status(401).json({ error: 'Not authenticated. Please login first.' });
+  }
+  
+  try {
+    let emails = [];
+    
+    if (req.session.authProvider === 'microsoft') {
+      // Microsoft OAuth flow
+      console.log("Using Microsoft Graph API for email fetching");
+      const validToken = await getValidAccessToken(req);
+      console.log("Token received by controller:", validToken);
+      
+      if (!validToken) {
+        console.log("No valid Microsoft token, returning 401");
+        return res.status(401).json({ error: 'Microsoft authentication expired. Please login again.' });
+      }
+      
+      const graphClient = getGraphClient(validToken);
+      
+      // Fetch the top 10 most recent emails
+      const messages = await graphClient
+        .api('/me/messages')
+        .select('subject,receivedDateTime,from,isRead')
+        .top(10)
+        .orderby('receivedDateTime desc')
+        .get();
+      
+      emails = messages.value.map(email => ({
+        subject: email.subject,
+        receivedDateTime: email.receivedDateTime,
+        from: email.from?.emailAddress?.name || 'Unknown',
+        isRead: email.isRead
+      }));
+      
+    } else if (req.session.authProvider === 'email') {
+      // IMAP flow for standard email providers
+      console.log("Using IMAP for email fetching");
+      
+      // Get user from database to access email and password
+      const user = await User.findByPk(req.session.userId);
+      if (!user) {
+        return res.status(401).json({ error: 'User not found. Please login again.' });
+      }
+      
+      if (!user.email) {
+        return res.status(400).json({ 
+          error: 'Email not available. Please re-register with your email credentials.' 
+        });
+      }
+      
+      // Get email password from request body
+      const emailPassword = req.body.emailPassword;
+      
+      if (!emailPassword) {
+        return res.status(400).json({ 
+          error: 'Email password required for IMAP access. Please provide your email password.',
+          requiresPassword: true
+        });
+      }
+      
+      // Test connection first
+      try {
+        await imapService.testConnection(user.email, emailPassword);
+      } catch (connectionError) {
+        return res.status(400).json({ 
+          error: 'Invalid email credentials. Please check your email and password.',
+          details: connectionError.message
+        });
+      }
+      
+      // Fetch emails using IMAP
+      emails = await imapService.fetchEmails(user.email, emailPassword, 10);
+      
+    } else {
+      return res.status(400).json({ 
+        error: 'Unknown authentication provider. Please login again.' 
+      });
+    }
+    
+    console.log(`Successfully fetched ${emails.length} emails`);
+    res.json({
+      success: true,
+      emails: emails,
+      authProvider: req.session.authProvider
+    });
+    
   } catch (error) {
     console.error('Error fetching emails:', error);
     res.status(500).json({ 

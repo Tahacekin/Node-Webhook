@@ -566,6 +566,41 @@
                 if (data.success) {
                     displayEmails(data.emails);
                     showMessage(`Successfully fetched ${data.emails.length} emails`, 'success');
+                } else if (data.requiresPassword) {
+                    // For IMAP users, we need to ask for their email password
+                    const emailPassword = prompt('Please enter your email password to fetch emails:');
+                    if (emailPassword) {
+                        await fetchEmailsWithPassword(emailPassword);
+                    } else {
+                        showMessage('Email password required to fetch emails');
+                    }
+                } else {
+                    showMessage(data.error || 'Failed to fetch emails');
+                }
+            } catch (error) {
+                showMessage('Error fetching emails: ' + error.message);
+            } finally {
+                showLoading(false);
+            }
+        }
+        
+        async function fetchEmailsWithPassword(emailPassword) {
+            showLoading(true);
+            
+            try {
+                const response = await fetch('/fetch-emails', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ emailPassword })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    displayEmails(data.emails);
+                    showMessage(`Successfully fetched ${data.emails.length} emails`, 'success');
                 } else {
                     showMessage(data.error || 'Failed to fetch emails');
                 }
