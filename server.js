@@ -136,33 +136,44 @@ function getGraphClient(accessToken) {
 
 // Email/Password Registration Route
 app.post('/auth/register', async (req, res) => {
-  console.log("=== /auth/register endpoint hit ===");
-  console.log("Request body:", req.body);
+  console.log("🟢 [BACKEND] '/auth/register' endpoint hit on the server.");
+  console.log("🟢 [BACKEND] Request body:", req.body);
+  console.log("🟢 [BACKEND] Request headers:", req.headers);
+  
   try {
     const { name, email, password } = req.body;
+    console.log("🟢 [BACKEND] Extracted data:", { name, email, password: password ? '***' : 'EMPTY' });
     
     // Validate required fields
     if (!name || !email || !password) {
+      console.log("🔴 [BACKEND] Missing required fields:", { name: !!name, email: !!email, password: !!password });
       return res.status(400).json({ 
         error: 'Missing required fields', 
         details: 'Name, email, and password are required' 
       });
     }
     
+    console.log("🟢 [BACKEND] All required fields present, checking for existing user...");
+    
     // Check if user already exists
     const existingUser = await User.findOne({ where: { email } });
     if (existingUser) {
+      console.log("🔴 [BACKEND] User already exists with email:", email);
       return res.status(409).json({ 
         error: 'User already exists', 
         details: 'A user with this email already exists' 
       });
     }
     
+    console.log("🟢 [BACKEND] No existing user found, hashing password...");
+    
     // Hash the password
     const saltRounds = 12;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
+    console.log("🟢 [BACKEND] Password hashed successfully");
     
     // Create new user
+    console.log("🟢 [BACKEND] Creating new user in database...");
     const user = await User.create({
       name,
       email,
@@ -170,8 +181,10 @@ app.post('/auth/register', async (req, res) => {
       provider: 'local',
       authProvider: 'email'
     });
+    console.log("🟢 [BACKEND] User created successfully with ID:", user.id);
     
     // Generate JWT token
+    console.log("🟢 [BACKEND] Generating JWT token...");
     const token = jwt.sign(
       { 
         userId: user.id, 
@@ -181,14 +194,24 @@ app.post('/auth/register', async (req, res) => {
       JWT_SECRET,
       { expiresIn: '24h' }
     );
+    console.log("🟢 [BACKEND] JWT token generated successfully");
     
     // Store user info in session
+    console.log("🟢 [BACKEND] Storing user info in session...");
     req.session.userId = user.id;
     req.session.userEmail = user.email;
     req.session.userName = user.name;
     req.session.provider = 'local';
     req.session.authProvider = user.authProvider;
+    console.log("🟢 [BACKEND] Session data stored:", {
+      userId: req.session.userId,
+      userEmail: req.session.userEmail,
+      userName: req.session.userName,
+      provider: req.session.provider,
+      authProvider: req.session.authProvider
+    });
     
+    console.log("🟢 [BACKEND] Sending success response...");
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
@@ -200,9 +223,11 @@ app.post('/auth/register', async (req, res) => {
       },
       token
     });
+    console.log("🟢 [BACKEND] Registration completed successfully");
     
   } catch (error) {
-    console.error('Registration error:', error);
+    console.error('🔴 [BACKEND] Registration error:', error);
+    console.error('🔴 [BACKEND] Error stack:', error.stack);
     res.status(500).json({ 
       error: 'Registration failed', 
       details: error.message 

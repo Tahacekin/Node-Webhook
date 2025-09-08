@@ -579,30 +579,39 @@
         }
         
         async function handleRegister(event) {
-            console.log("Register button clicked!");
+            console.log("🔵 [FRONTEND] Register button clicked!");
             event.preventDefault();
             
             const name = document.getElementById('registerName').value;
             const email = document.getElementById('registerEmail').value;
             const password = document.getElementById('registerPassword').value;
             
-            console.log("Register form data:", { name, email, password });
+            console.log("🔵 [FRONTEND] Register form data:", { name, email, password: password ? '***' : 'EMPTY' });
             
             try {
-                console.log("Sending register request to /auth/register");
+                console.log("🔵 [FRONTEND] Sending register request to /auth/register");
+                const userData = { name, email, password };
+                console.log("🔵 [FRONTEND] Sending registration data:", userData);
+                
                 const response = await fetch('/auth/register', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ name, email, password })
+                    body: JSON.stringify(userData)
+                }).catch(fetchError => {
+                    console.error("🔴 [FRONTEND] Fetch error:", fetchError);
+                    throw fetchError;
                 });
                 
-                console.log("Register response status:", response.status);
+                console.log("🔵 [FRONTEND] Register response status:", response.status);
+                console.log("🔵 [FRONTEND] Register response headers:", Object.fromEntries(response.headers.entries()));
+                
                 const data = await response.json();
-                console.log("Register response data:", data);
+                console.log("🔵 [FRONTEND] Register response data:", data);
                 
                 if (data.success) {
+                    console.log("🔵 [FRONTEND] Registration successful, showing email section");
                     showMessage('Registration successful! You are now logged in.', 'success');
                     showEmailSection();
                     // Clear form
@@ -610,9 +619,11 @@
                     document.getElementById('registerEmail').value = '';
                     document.getElementById('registerPassword').value = '';
                 } else {
+                    console.log("🔴 [FRONTEND] Registration failed:", data.error);
                     showMessage(data.error || 'Registration failed');
                 }
             } catch (error) {
+                console.error("🔴 [FRONTEND] Registration error:", error);
                 showMessage('Registration error: ' + error.message);
             }
         }
