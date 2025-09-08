@@ -1,4 +1,5 @@
 {
+  // Database configuration for different environments
   "development": {
     "username": "webhook_user",
     "password": "your_secure_password",
