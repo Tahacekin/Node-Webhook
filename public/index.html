@@ -353,6 +353,9 @@
             <h3>🔐 Authentication Required</h3>
             <p>Choose your preferred login method</p>
             
+            <!-- Test Button -->
+            <button onclick="testJavaScript()" style="background: #ff6b6b; color: white; border: none; padding: 10px 20px; border-radius: 5px; margin-bottom: 20px; cursor: pointer;">Test JavaScript</button>
+            
             <!-- Login Method Toggle -->
             <div class="auth-toggle">
                 <button class="auth-toggle-btn active" onclick="showAuthMethod('microsoft')">Microsoft OAuth</button>
@@ -422,11 +425,19 @@
     <script>
         // Check if user is authenticated on page load
         window.addEventListener('load', function() {
+            console.log("Page loaded, checking auth status");
             checkAuthStatus();
         });
         
+        // Test function to verify JavaScript is working
+        function testJavaScript() {
+            console.log("JavaScript is working!");
+            alert("JavaScript is working!");
+        }
+        
         // Authentication method toggle functions
         function showAuthMethod(method) {
+            console.log("Switching auth method to:", method);
             // Update toggle buttons
             document.querySelectorAll('.auth-toggle-btn').forEach(btn => {
                 btn.classList.remove('active');
@@ -444,23 +455,29 @@
         }
         
         function showLoginForm() {
+            console.log("Showing login form");
             document.getElementById('loginForm').style.display = 'block';
             document.getElementById('registerForm').style.display = 'none';
         }
         
         function showRegisterForm() {
+            console.log("Showing register form");
             document.getElementById('loginForm').style.display = 'none';
             document.getElementById('registerForm').style.display = 'block';
         }
         
         // Email/Password authentication functions
         async function handleLogin(event) {
+            console.log("Login button clicked!");
             event.preventDefault();
             
             const email = document.getElementById('loginEmail').value;
             const password = document.getElementById('loginPassword').value;
             
+            console.log("Login form data:", { email, password });
+            
             try {
+                console.log("Sending login request to /auth/login");
                 const response = await fetch('/auth/login', {
                     method: 'POST',
                     headers: {
@@ -469,7 +486,9 @@
                     body: JSON.stringify({ email, password })
                 });
                 
+                console.log("Login response status:", response.status);
                 const data = await response.json();
+                console.log("Login response data:", data);
                 
                 if (data.success) {
                     showMessage('Login successful!', 'success');
@@ -486,13 +505,17 @@
         }
         
         async function handleRegister(event) {
+            console.log("Register button clicked!");
             event.preventDefault();
             
             const name = document.getElementById('registerName').value;
             const email = document.getElementById('registerEmail').value;
             const password = document.getElementById('registerPassword').value;
             
+            console.log("Register form data:", { name, email, password });
+            
             try {
+                console.log("Sending register request to /auth/register");
                 const response = await fetch('/auth/register', {
                     method: 'POST',
                     headers: {
@@ -501,7 +524,9 @@
                     body: JSON.stringify({ name, email, password })
                 });
                 
+                console.log("Register response status:", response.status);
                 const data = await response.json();
+                console.log("Register response data:", data);
                 
                 if (data.success) {
                     showMessage('Registration successful! You are now logged in.', 'success');
