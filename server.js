@@ -136,6 +136,8 @@ function getGraphClient(accessToken) {
 
 // Email/Password Registration Route
 app.post('/auth/register', async (req, res) => {
+  console.log("=== /auth/register endpoint hit ===");
+  console.log("Request body:", req.body);
   try {
     const { name, email, password } = req.body;
     
@@ -210,6 +212,8 @@ app.post('/auth/register', async (req, res) => {
 
 // Email/Password Login Route
 app.post('/auth/login', async (req, res) => {
+  console.log("=== /auth/login endpoint hit ===");
+  console.log("Request body:", req.body);
   try {
     const { email, password } = req.body;
     
