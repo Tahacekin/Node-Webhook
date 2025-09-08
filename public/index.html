@@ -132,6 +132,24 @@
             text-decoration: underline;
         }
         
+        .form-help {
+            display: block;
+            margin-top: 8px;
+            font-size: 0.85rem;
+            color: #666;
+            line-height: 1.4;
+        }
+        
+        .form-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .form-actions .btn {
+            flex: 1;
+        }
+        
         .login-btn {
             background: #0078d4;
             color: white;
@@ -405,6 +423,34 @@
             </div>
         </div>
         
+        <!-- App Password Form (hidden by default) -->
+        <div id="appPasswordForm" class="auth-section" style="display: none;">
+            <h3>🔐 App Password Required</h3>
+            <p>To fetch emails from your email provider, you need to use an App Password instead of your regular password.</p>
+            
+            <div class="auth-form">
+                <h4>Enter App Password</h4>
+                <form onsubmit="handleAppPasswordSubmit(event)">
+                    <div class="form-group">
+                        <input type="password" id="appPassword" placeholder="App Password" required>
+                        <small class="form-help">
+                            You must generate a service-specific App Password from your email provider's security settings.
+                            <br><br>
+                            <strong>How to generate App Passwords:</strong>
+                            <br>• <strong>Gmail:</strong> Google Account → Security → 2-Step Verification → App passwords
+                            <br>• <strong>Outlook/Hotmail:</strong> Microsoft Account → Security → Advanced security options → App passwords
+                            <br>• <strong>Yahoo:</strong> Account Security → Generate app password
+                            <br>• <strong>iCloud:</strong> Apple ID → Sign-In and Security → App-Specific Passwords
+                        </small>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="login-btn">Fetch Emails</button>
+                        <button type="button" class="btn secondary" onclick="hideAppPasswordForm()">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
         <div class="email-section" id="emailSection">
             <div class="controls">
                 <button class="btn" onclick="fetchEmails()">📥 Fetch Emails</button>
@@ -433,6 +479,34 @@
         function testJavaScript() {
             console.log("JavaScript is working!");
             alert("JavaScript is working!");
+        }
+        
+        // App Password form functions
+        function showAppPasswordForm() {
+            console.log("Showing App Password form");
+            document.getElementById('appPasswordForm').style.display = 'block';
+            document.getElementById('emailSection').style.display = 'none';
+        }
+        
+        function hideAppPasswordForm() {
+            console.log("Hiding App Password form");
+            document.getElementById('appPasswordForm').style.display = 'none';
+            document.getElementById('emailSection').style.display = 'block';
+        }
+        
+        async function handleAppPasswordSubmit(event) {
+            console.log("App Password form submitted!");
+            event.preventDefault();
+            
+            const appPassword = document.getElementById('appPassword').value;
+            console.log("App Password entered:", appPassword ? "***" : "empty");
+            
+            if (appPassword) {
+                await fetchEmailsWithPassword(appPassword);
+                hideAppPasswordForm();
+            } else {
+                showMessage('Please enter your App Password');
+            }
         }
         
         // Authentication method toggle functions
@@ -593,12 +667,7 @@
                     showMessage(`Successfully fetched ${data.emails.length} emails`, 'success');
                 } else if (data.requiresPassword) {
                     // For IMAP users, we need to ask for their email password
-                    const emailPassword = prompt('Please enter your email password to fetch emails:');
-                    if (emailPassword) {
-                        await fetchEmailsWithPassword(emailPassword);
-                    } else {
-                        showMessage('Email password required to fetch emails');
-                    }
+                    showAppPasswordForm();
                 } else {
                     showMessage(data.error || 'Failed to fetch emails');
                 }
@@ -609,8 +678,10 @@
             }
         }
         
-        async function fetchEmailsWithPassword(emailPassword) {
+        async function fetchEmailsWithPassword(appPassword) {
+            console.log("Fetching emails with App Password");
             showLoading(true);
+            document.getElementById('emailsContainer').innerHTML = '';
             
             try {
                 const response = await fetch('/fetch-emails', {
@@ -618,18 +689,21 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ emailPassword })
+                    body: JSON.stringify({ emailPassword: appPassword })
                 });
                 
+                console.log("App Password response status:", response.status);
                 const data = await response.json();
+                console.log("App Password response data:", data);
                 
                 if (data.success) {
                     displayEmails(data.emails);
-                    showMessage(`Successfully fetched ${data.emails.length} emails`, 'success');
+                    showMessage(`Successfully fetched ${data.emails.length} emails using App Password`, 'success');
                 } else {
-                    showMessage(data.error || 'Failed to fetch emails');
+                    showMessage(data.error || 'Failed to fetch emails with App Password');
                 }
             } catch (error) {
+                console.error('App Password fetch error:', error);
                 showMessage('Error fetching emails: ' + error.message);
             } finally {
                 showLoading(false);
