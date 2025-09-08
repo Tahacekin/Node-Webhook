@@ -4,7 +4,9 @@ const SequelizeStore = require('connect-session-sequelize')(session.Store);
 const { Client } = require('@microsoft/microsoft-graph-client');
 const axios = require('axios');
 const crypto = require('crypto');
-const { sequelize, Subscription } = require('./models');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { sequelize, Subscription, User } = require('./models');
 const renewalService = require('./services/renewalService');
 require('dotenv').config();
 
@@ -42,6 +44,9 @@ const REDIRECT_URI = process.env.REDIRECT_URI || 'http://localhost:3000/callback
 // Use hardcoded webhook URL to avoid environment variable issues
 const WEBHOOK_URL = 'https://natural-sparkle-production.up.railway.app/webhook';
 const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
+
+// JWT configuration
+const JWT_SECRET = process.env.JWT_SECRET || 'your-jwt-secret-key';
 
 // Helper function to get valid access token (with refresh logic)
 async function getValidAccessToken(req) {
@@ -127,6 +132,155 @@ function getGraphClient(accessToken) {
 }
 
 // Part 1: Authentication Routes
+
+// Email/Password Registration Route
+app.post('/auth/register', async (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    
+    // Validate required fields
+    if (!name || !email || !password) {
+      return res.status(400).json({ 
+        error: 'Missing required fields', 
+        details: 'Name, email, and password are required' 
+      });
+    }
+    
+    // Check if user already exists
+    const existingUser = await User.findOne({ where: { email } });
+    if (existingUser) {
+      return res.status(409).json({ 
+        error: 'User already exists', 
+        details: 'A user with this email already exists' 
+      });
+    }
+    
+    // Hash the password
+    const saltRounds = 12;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    
+    // Create new user
+    const user = await User.create({
+      name,
+      email,
+      password: hashedPassword,
+      provider: 'local'
+    });
+    
+    // Generate JWT token
+    const token = jwt.sign(
+      { 
+        userId: user.id, 
+        email: user.email, 
+        provider: 'local' 
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    
+    // Store user info in session
+    req.session.userId = user.id;
+    req.session.userEmail = user.email;
+    req.session.userName = user.name;
+    req.session.provider = 'local';
+    
+    res.status(201).json({
+      success: true,
+      message: 'User registered successfully',
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        provider: user.provider
+      },
+      token
+    });
+    
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ 
+      error: 'Registration failed', 
+      details: error.message 
+    });
+  }
+});
+
+// Email/Password Login Route
+app.post('/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    // Validate required fields
+    if (!email || !password) {
+      return res.status(400).json({ 
+        error: 'Missing required fields', 
+        details: 'Email and password are required' 
+      });
+    }
+    
+    // Find user by email
+    const user = await User.findOne({ where: { email, provider: 'local' } });
+    if (!user) {
+      return res.status(401).json({ 
+        error: 'Invalid credentials', 
+        details: 'User not found or invalid login method' 
+      });
+    }
+    
+    // Check if user has a password (should always be true for local users)
+    if (!user.password) {
+      return res.status(401).json({ 
+        error: 'Invalid credentials', 
+        details: 'User account not properly configured' 
+      });
+    }
+    
+    // Compare password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ 
+        error: 'Invalid credentials', 
+        details: 'Incorrect password' 
+      });
+    }
+    
+    // Generate JWT token
+    const token = jwt.sign(
+      { 
+        userId: user.id, 
+        email: user.email, 
+        provider: 'local' 
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    
+    // Store user info in session
+    req.session.userId = user.id;
+    req.session.userEmail = user.email;
+    req.session.userName = user.name;
+    req.session.provider = 'local';
+    
+    res.json({
+      success: true,
+      message: 'Login successful',
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        provider: user.provider
+      },
+      token
+    });
+    
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ 
+      error: 'Login failed', 
+      details: error.message 
+    });
+  }
+});
 
 // Login route - redirects to Microsoft login
 app.get('/login', (req, res) => {

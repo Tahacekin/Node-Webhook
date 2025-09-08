@@ -54,6 +54,84 @@
             border-radius: 15px;
         }
         
+        .auth-toggle {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 30px;
+            background: white;
+            border-radius: 10px;
+            padding: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .auth-toggle-btn {
+            background: transparent;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+            color: #666;
+        }
+        
+        .auth-toggle-btn.active {
+            background: #0078d4;
+            color: white;
+            box-shadow: 0 2px 8px rgba(0,120,212,0.3);
+        }
+        
+        .auth-method {
+            margin-top: 20px;
+        }
+        
+        .auth-form {
+            max-width: 400px;
+            margin: 0 auto;
+            text-align: left;
+        }
+        
+        .auth-form h4 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #333;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            font-size: 1rem;
+            transition: border-color 0.3s ease;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #0078d4;
+            box-shadow: 0 0 0 3px rgba(0,120,212,0.1);
+        }
+        
+        .auth-form p {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+        }
+        
+        .auth-form a {
+            color: #0078d4;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .auth-form a:hover {
+            text-decoration: underline;
+        }
+        
         .login-btn {
             background: #0078d4;
             color: white;
@@ -273,8 +351,55 @@
         
         <div class="auth-section" id="authSection">
             <h3>🔐 Authentication Required</h3>
-            <p>Click the button below to connect to your Microsoft account</p>
-            <a href="/login" class="login-btn">Login with Microsoft</a>
+            <p>Choose your preferred login method</p>
+            
+            <!-- Login Method Toggle -->
+            <div class="auth-toggle">
+                <button class="auth-toggle-btn active" onclick="showAuthMethod('microsoft')">Microsoft OAuth</button>
+                <button class="auth-toggle-btn" onclick="showAuthMethod('email')">Email & Password</button>
+            </div>
+            
+            <!-- Microsoft OAuth Section -->
+            <div id="microsoftAuth" class="auth-method">
+                <p>Connect to your Microsoft account</p>
+                <a href="/login" class="login-btn">Login with Microsoft</a>
+            </div>
+            
+            <!-- Email/Password Auth Section -->
+            <div id="emailAuth" class="auth-method" style="display: none;">
+                <!-- Login Form -->
+                <div id="loginForm" class="auth-form">
+                    <h4>Login</h4>
+                    <form onsubmit="handleLogin(event)">
+                        <div class="form-group">
+                            <input type="email" id="loginEmail" placeholder="Email" required>
+                        </div>
+                        <div class="form-group">
+                            <input type="password" id="loginPassword" placeholder="Password" required>
+                        </div>
+                        <button type="submit" class="login-btn">Login</button>
+                    </form>
+                    <p>Don't have an account? <a href="#" onclick="showRegisterForm()">Register here</a></p>
+                </div>
+                
+                <!-- Registration Form -->
+                <div id="registerForm" class="auth-form" style="display: none;">
+                    <h4>Register</h4>
+                    <form onsubmit="handleRegister(event)">
+                        <div class="form-group">
+                            <input type="text" id="registerName" placeholder="Full Name" required>
+                        </div>
+                        <div class="form-group">
+                            <input type="email" id="registerEmail" placeholder="Email" required>
+                        </div>
+                        <div class="form-group">
+                            <input type="password" id="registerPassword" placeholder="Password" required minlength="6">
+                        </div>
+                        <button type="submit" class="login-btn">Register</button>
+                    </form>
+                    <p>Already have an account? <a href="#" onclick="showLoginForm()">Login here</a></p>
+                </div>
+            </div>
         </div>
         
         <div class="email-section" id="emailSection">
@@ -299,6 +424,99 @@
         window.addEventListener('load', function() {
             checkAuthStatus();
         });
+        
+        // Authentication method toggle functions
+        function showAuthMethod(method) {
+            // Update toggle buttons
+            document.querySelectorAll('.auth-toggle-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            // Show/hide auth methods
+            document.getElementById('microsoftAuth').style.display = method === 'microsoft' ? 'block' : 'none';
+            document.getElementById('emailAuth').style.display = method === 'email' ? 'block' : 'none';
+            
+            // Reset forms
+            if (method === 'email') {
+                showLoginForm();
+            }
+        }
+        
+        function showLoginForm() {
+            document.getElementById('loginForm').style.display = 'block';
+            document.getElementById('registerForm').style.display = 'none';
+        }
+        
+        function showRegisterForm() {
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('registerForm').style.display = 'block';
+        }
+        
+        // Email/Password authentication functions
+        async function handleLogin(event) {
+            event.preventDefault();
+            
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            try {
+                const response = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('Login successful!', 'success');
+                    showEmailSection();
+                    // Clear form
+                    document.getElementById('loginEmail').value = '';
+                    document.getElementById('loginPassword').value = '';
+                } else {
+                    showMessage(data.error || 'Login failed');
+                }
+            } catch (error) {
+                showMessage('Login error: ' + error.message);
+            }
+        }
+        
+        async function handleRegister(event) {
+            event.preventDefault();
+            
+            const name = document.getElementById('registerName').value;
+            const email = document.getElementById('registerEmail').value;
+            const password = document.getElementById('registerPassword').value;
+            
+            try {
+                const response = await fetch('/auth/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ name, email, password })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showMessage('Registration successful! You are now logged in.', 'success');
+                    showEmailSection();
+                    // Clear form
+                    document.getElementById('registerName').value = '';
+                    document.getElementById('registerEmail').value = '';
+                    document.getElementById('registerPassword').value = '';
+                } else {
+                    showMessage(data.error || 'Registration failed');
+                }
+            } catch (error) {
+                showMessage('Registration error: ' + error.message);
+            }
+        }
         
         function checkAuthStatus() {
             // Simple check - in a real app, you'd verify the session server-side
