@@ -31,10 +31,12 @@ const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET;
 // Helper function to get valid access token (with refresh logic)
 async function getValidAccessToken(req) {
   console.log("=== getValidAccessToken DEBUG START ===");
+  console.log("Checking token validity...");
   console.log("Session accessToken type:", typeof req.session.accessToken);
   console.log("Session accessToken value:", req.session.accessToken);
   console.log("Session refreshToken type:", typeof req.session.refreshToken);
   console.log("Session refreshToken value:", req.session.refreshToken);
+  console.log("Session tokenExpiresAt:", req.session.tokenExpiresAt);
   
   // If no access token in session, return null
   if (!req.session.accessToken) {
@@ -42,8 +44,58 @@ async function getValidAccessToken(req) {
     return null;
   }
   
-  // For now, return the stored token (we'll add refresh logic later)
-  // TODO: Add token expiration check and refresh logic
+  // Check if token is expired (with 5 minute buffer)
+  const now = new Date();
+  const expiresAt = new Date(req.session.tokenExpiresAt);
+  const bufferTime = 5 * 60 * 1000; // 5 minutes in milliseconds
+  
+  if (expiresAt && now.getTime() > (expiresAt.getTime() - bufferTime)) {
+    console.log("Access token expired. Attempting to refresh...");
+    
+    // If no refresh token, return null
+    if (!req.session.refreshToken) {
+      console.log("No refresh token available, returning null");
+      return null;
+    }
+    
+    try {
+      // Refresh the token
+      const refreshResponse = await axios.post('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        refresh_token: req.session.refreshToken,
+        grant_type: 'refresh_token'
+      });
+      
+      // Update session with new tokens
+      req.session.accessToken = refreshResponse.data.access_token;
+      req.session.refreshToken = refreshResponse.data.refresh_token || req.session.refreshToken;
+      req.session.tokenExpiresAt = new Date(Date.now() + (refreshResponse.data.expires_in * 1000));
+      
+      console.log("Token refresh successful!");
+      console.log("New token expires at:", req.session.tokenExpiresAt);
+      
+      // Store tokens in renewal service for webhook operations
+      if (renewalService && req.session.userId) {
+        renewalService.storeUserTokens(req.session.userId, {
+          accessToken: req.session.accessToken,
+          refreshToken: req.session.refreshToken,
+          expiresAt: req.session.tokenExpiresAt
+        });
+      }
+      
+    } catch (error) {
+      console.error("Token refresh failed:", error.response?.data || error.message);
+      // Clear invalid tokens from session
+      req.session.accessToken = null;
+      req.session.refreshToken = null;
+      req.session.tokenExpiresAt = null;
+      return null;
+    }
+  } else {
+    console.log("Access token is still valid");
+  }
+  
   const tokenString = String(req.session.accessToken);
   console.log("Returning access token string:", tokenString);
   console.log("=== getValidAccessToken DEBUG END ===");
@@ -115,9 +167,11 @@ app.get('/callback', async (req, res) => {
     req.session.accessToken = access_token;
     req.session.refreshToken = refresh_token;
     req.session.userId = 'user-' + Date.now(); // Simple user ID generation
+    req.session.tokenExpiresAt = new Date(Date.now() + (expires_in * 1000));
     
     console.log("Stored in session - accessToken:", req.session.accessToken);
     console.log("Stored in session - refreshToken:", req.session.refreshToken);
+    console.log("Stored in session - tokenExpiresAt:", req.session.tokenExpiresAt);
     console.log("=== /callback TOKEN STORAGE DEBUG END ===");
     
     // Store tokens in renewal service for webhook renewal
@@ -128,6 +182,7 @@ app.get('/callback', async (req, res) => {
       expires_in
     );
     
+    console.log("SESSION DATA BEFORE REDIRECT:", req.session);
     res.redirect('/');
   } catch (error) {
     console.error('Token exchange error:', error.response?.data || error.message);
@@ -342,6 +397,7 @@ app.post('/webhook', async (req, res) => {
 
 // Serve the main page
 app.get('/', (req, res) => {
+  console.log("A user visited the root route. Sending index.html now.");
   res.sendFile(__dirname + '/public/index.html');
 });
 
